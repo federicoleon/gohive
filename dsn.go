@@ -2,64 +2,133 @@ package gohive
 
 import (
 	"errors"
-	"fmt"
+	"strconv"
 	"strings"
 )
 
 type Config struct {
-	HiveVersion string // Hive version. Supporting hive and hive2
-	Host        string // Connection host
-	Port        int    // Connection port
-	User        string // Username
-	Password    string // Password (requires User)
-	DBName      string // Database name
+	HiveVersion string                 // Hive version. Supporting hive and hive2
+	Host        string                 // Connection host
+	Port        int                    // Connection port
+	User        string                 // Username
+	Password    string                 // Password (requires User)
+	DBName      string                 // Database name
+	Args        map[string]interface{} // Extra parameters received in dsn
 }
 
 const (
-	HIVE   = "hive"
-	HIVE_2 = "hive2"
+	HIVE           = "hive"
+	HIVE_2         = "hive2"
+	PARAM_USER     = "user"
+	PARAM_PASSWORD = "password"
+)
+
+var (
+	ERROR_INVALID_CONNECTION_STRING = "Hive: Invalid connection string"
+	ERROR_INVALID_PORT              = "Hive: Invalid port in connection string"
+	ERROR_INVALID_DATABASE_NAME     = "Hive: Invalid database name"
 )
 
 func ParseDSN(dsn string) (*Config, error) {
 	config := new(Config)
-
-	var err error
-
-	var hiveVersion string
-	hiveVersion, err = getHiveVersion(dsn)
+	err := getHiveConfigFromDSN(dsn, &config)
 	if err != nil {
 		return nil, err
 	}
-	config.HiveVersion = hiveVersion
-
-	// TODO: Parse host, port, user, password and dbname from dsn.
-	config.Host = ""
-	config.Port = 100
-	config.User = ""
-	config.Password = ""
-	config.DBName = ""
-
 	return config, nil
 }
 
-func getHiveVersion(dsn string) (string, error) {
+func getHiveConfigFromDSN(dsn string, configP **Config) error {
 	dsnValues := strings.Split(dsn, "://")
-	fmt.Println(len(dsnValues))
-	fmt.Println(dsnValues)
-	var result string
-	if len(dsnValues) > 1 {
-		switch dsnValues[0] {
-		case HIVE:
-			result = HIVE
-			break
-		case HIVE_2:
-			result = HIVE_2
-			break
-		}
+	if len(dsnValues) != 2 {
+		return errors.New(ERROR_INVALID_CONNECTION_STRING)
+	}
+	processHiveVersion(dsnValues[0], configP)
+	processHiveConnectionString(dsnValues[1], configP)
+	return nil
+}
+
+func processHiveVersion(hiveP string, confP **Config) {
+	config := *confP
+	config.HiveVersion = HIVE_2
+	switch hiveP {
+	case HIVE:
+		config.HiveVersion = HIVE
+		break
+	}
+}
+
+func processHiveConnectionString(connP string, config **Config) error {
+	if config == nil {
+		return errors.New("Couldn't process nil config")
 	}
 
-	if result == "" {
-		return "", errors.New(fmt.Sprintf("Invalid Hive version. Expected %s or %s", HIVE, HIVE_2))
+	connValues := strings.Split(connP, ";")
+	err := processHostPortAndDB(connValues[0], config)
+	if err != nil {
+		return err
 	}
-	return result, nil
+
+	if len(connValues) > 1 {
+		err = processExtraParameters(connValues[1:], config)
+	}
+
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func processHostPortAndDB(hostAndPort string, confP **Config) error {
+	if confP == nil {
+		return errors.New("Couldn't process nil config")
+	}
+
+	hostValues := strings.Split(hostAndPort, ":")
+	if len(hostValues) != 2 {
+		return errors.New(ERROR_INVALID_CONNECTION_STRING)
+	}
+	config := *confP
+
+	config.Host = hostValues[0]
+
+	portAndDB := strings.Split(hostValues[1], "/")
+	if len(portAndDB) != 2 {
+		return errors.New(ERROR_INVALID_DATABASE_NAME)
+	}
+	port, err := strconv.Atoi(portAndDB[0])
+	if err != nil {
+		return errors.New(ERROR_INVALID_PORT)
+	}
+
+	config.Port = port
+	config.DBName = portAndDB[1]
+
+	return nil
+}
+
+func processExtraParameters(params []string, confP **Config) error {
+	if confP == nil {
+		return errors.New("Couldn't process nil config")
+	}
+	config := *confP
+	args := make(map[string]interface{})
+	for _, value := range params {
+		param := strings.Split(value, "=")
+		if len(param) == 2 {
+			switch param[0] {
+			case PARAM_USER:
+				config.User = param[1]
+				break
+			case PARAM_PASSWORD:
+				config.Password = param[1]
+				break
+			default:
+				args[param[0]] = param[1]
+				break
+			}
+		}
+	}
+	config.Args = args
+	return nil
 }

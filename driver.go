@@ -25,7 +25,6 @@ func init() {
 type hiveDrv struct{}
 
 func (drv *hiveDrv) Open(dsn string) (driver.Conn, error) {
-	fmt.Println("Called Open function")
 	connection, err := OpenHiveConnection(dsn)
 	if err != nil {
 		return nil, err
@@ -40,6 +39,8 @@ type hiveConn struct {
 	port        int
 	user        string
 	password    string
+	dbName      string
+	args        map[string]interface{}
 }
 
 func (conn *hiveConn) Begin() (driver.Tx, error) {
@@ -119,6 +120,9 @@ func OpenHiveConnection(dsn string) (driver.Conn, error) {
 	if errConf != nil {
 		return nil, errConf
 	}
-	connection := &hiveConn{hiveVersion: config.HiveVersion, host: config.Host, port: config.Port, user: config.User, password: config.Password}
+	connection := &hiveConn{hiveVersion: config.HiveVersion, host: config.Host,
+		port: config.Port, user: config.User, password: config.Password,
+		dbName: config.DBName, args: config.Args}
+
 	return connection, nil
 }
